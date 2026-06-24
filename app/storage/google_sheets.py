@@ -106,8 +106,9 @@ class GoogleSheetsStorage:
           L Кол-во (ф) | M Сумма (ф) | N Дней без контакта (ф) |
           O Согласие | P Теги | Q Заметки | R цифры (ф)
 
-        Бот пишет ТОЛЬКО статичные колонки: A–C, E–K и O (Согласие).
-        Формульные D, L, M, N, R и ручные P, Q не трогаем.
+        Бот пишет ТОЛЬКО статичные колонки: A–C и E–K.
+        Колонку O (Согласие) бот БОЛЬШЕ НЕ трогает — её заполнит будущий опрос/менеджер.
+        Формульные D, L, M, N, R и ручные O, P, Q не трогаем.
         Диапазон A:C и E:K пишем отдельно, чтобы перепрыгнуть формулу в D.
         """
         assert self._clients_ws is not None
@@ -151,7 +152,6 @@ class GoogleSheetsStorage:
                 [[lead.source, brand, model, year, vin, first_contact, today]],
                 value_input_option="USER_ENTERED",
             )
-            ws.update_cell(target_row, 15, lead.consent_label)  # колонка O
         else:
             # Новый клиент: пишем в следующую строку напрямую
             # (не append_row, чтобы не конфликтовать с формулами).
@@ -166,7 +166,6 @@ class GoogleSheetsStorage:
                 [[lead.source, lead.brand, lead.model, lead.year, lead.vin, today, today]],
                 value_input_option="USER_ENTERED",
             )
-            ws.update_cell(new_row, 15, lead.consent_label)  # колонка O
 
     async def init(self) -> None:
         """Подключиться один раз при старте и закэшировать листы."""

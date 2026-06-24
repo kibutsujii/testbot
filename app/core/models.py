@@ -165,7 +165,6 @@ class Lead:
         if self.vehicle_display:
             lines.append(f"🚗 <b>Авто:</b> {self.vehicle_display}")
         lines.append(f"📝 <b>Запрос:</b> {self.request_text}")
-        lines.append(f"📨 <b>Рассылка:</b> {'Да' if self.marketing_consent else 'Нет'}")
         lines.append(f"🌐 <b>Источник:</b> {self.source}")
         lines.append(f"🕒 <b>Время:</b> {self.created_at.strftime('%d.%m.%Y %H:%M')}")
         return "\n".join(lines)
@@ -182,5 +181,4 @@ class Lead:
         if self.vehicle_display:
             lines.append(f"🚗 <b>Авто:</b> {self.vehicle_display}")
         lines.append(f"📝 <b>Запрос:</b> {self.request_text}")
-        lines.append(f"📨 <b>Рассылка:</b> {'Да' if self.marketing_consent else 'Нет'}")
         return "\n".join(lines)

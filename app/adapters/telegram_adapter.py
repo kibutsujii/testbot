@@ -2,7 +2,7 @@
 Telegram-адаптер на aiogram 3.x.
 
 Отвечает только за транспорт: ведёт диалог-меню
-(имя → телефон → тип запроса → [авто] → описание → согласие → подтверждение),
+(имя → телефон → тип запроса → [авто] → описание → подтверждение),
 собирает данные и отдаёт их в LeadService в виде единой модели Lead.
 
 Авто спрашиваем по-разному:
@@ -48,7 +48,6 @@ class LeadForm(StatesGroup):
     veh_year = State()       # ремонт: год
     veh_parts = State()      # запчасти: VIN или марка+год одним сообщением
     description = State()
-    consent = State()        # ждём ответа на вопрос про рассылку
     confirm = State()        # ждём подтверждения кнопкой
 
 
@@ -71,16 +70,6 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="✅ Отправить", callback_data="confirm:send")],
             [InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="confirm:restart")],
-        ]
-    )
-
-
-def _consent_keyboard() -> InlineKeyboardMarkup:
-    """Кнопки согласия на рассылку."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Да, хочу", callback_data="consent:yes")],
-            [InlineKeyboardButton(text="🚫 Нет, спасибо", callback_data="consent:no")],
         ]
     )
 
@@ -253,32 +242,16 @@ class TelegramAdapter:
 
         @dp.message(LeadForm.description, F.text)
         async def step_description(message: Message, state: FSMContext) -> None:
-            """Получили описание → спрашиваем согласие на рассылку."""
+            """Получили описание → показываем экран подтверждения."""
             await state.update_data(description=message.text.strip())
-            await self._ask_consent(message, state)
-
-        @dp.callback_query(LeadForm.consent, F.data.startswith("consent:"))
-        async def choose_consent(callback: CallbackQuery, state: FSMContext) -> None:
-            """Получили ответ про рассылку → показываем экран подтверждения."""
-            choice = callback.data.split(":", 1)[1]
-            await state.update_data(marketing_consent=(choice == "yes"))
-            await callback.answer()
             data = await state.get_data()
             # Собираем черновик Lead только для красивого превью.
             preview = self.normalize(data)
-            await callback.message.answer(
+            await message.answer(
                 preview.as_confirmation(),
                 reply_markup=_confirm_keyboard(),
             )
             await state.set_state(LeadForm.confirm)
-
-        @dp.message(LeadForm.consent)
-        async def consent_fallback(message: Message) -> None:
-            """Если вместо кнопки написали текст — мягко напоминаем."""
-            await message.answer(
-                "Пожалуйста, выберите вариант кнопкой выше 👆",
-                reply_markup=_consent_keyboard(),
-            )
 
         @dp.callback_query(LeadForm.confirm, F.data == "confirm:send")
         async def confirm_send(callback: CallbackQuery, state: FSMContext) -> None:
@@ -360,11 +333,3 @@ class TelegramAdapter:
         await message.answer(text)
         await state.set_state(LeadForm.description)
 
-    async def _ask_consent(self, message: Message, state: FSMContext) -> None:
-        """Спросить согласие на рассылку акций/бонусов."""
-        await message.answer(
-            "И последнее 🙌\n"
-            "Хотите получать наши акции, скидки и полезные предложения?",
-            reply_markup=_consent_keyboard(),
-        )
-        await state.set_state(LeadForm.consent)
