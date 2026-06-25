@@ -33,6 +33,13 @@ from aiogram.types import (
 from app.core.models import Lead
 from app.core.service import LeadService
 from app.core.validators import normalize_phone, parse_vehicle_freeform
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+START_KB = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📝 Оставить заявку")]],
+    resize_keyboard=True,
+    input_field_placeholder="Нажмите «Оставить заявку»",
+)
 
 log = logging.getLogger(__name__)
 
@@ -68,7 +75,7 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
     """Кнопки подтверждения заявки."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Отправить", callback_data="confirm:send")],
+            [InlineKeyboardButton(text="✅ Согласен, отправить заявку", callback_data="confirm:send")],
             [InlineKeyboardButton(text="✏️ Заполнить заново", callback_data="confirm:restart")],
         ]
     )
@@ -263,10 +270,9 @@ class TelegramAdapter:
             lead = self.normalize(data)
             try:
                 number = await self._service.register_lead(lead)
-                await callback.message.answer(
-                    f"Спасибо! Заявка №{number} принята ✅\n"
-                    "Мы свяжемся с вами в ближайшее время.",
-                    reply_markup=ReplyKeyboardRemove(),
+                await callback.message.edit_text(
+                    f"✅ Заявка №{lead.lead_number} отправлена!\n"
+                    "Ожидайте, менеджер уже скоро свяжется с вами."
                 )
             except Exception:
                 # Любая ошибка обработки НЕ должна ронять бота.

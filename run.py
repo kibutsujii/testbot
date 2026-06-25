@@ -53,12 +53,13 @@ async def main() -> None:
 
     if config.manager_channel == "max":
         notifier = MaxNotifier(
-        token=config.max_bot_token,
-        manager_user_id=config.max_manager_user_id,
+            token=config.max_bot_token,
+            manager_user_id=config.max_manager_user_id,
         )
     else:
         notifier = TelegramNotifier(bot=bot, manager_chat_id=config.manager_chat_id)
-        service = LeadService(storage=storage, notifier=notifier)
+
+    service = LeadService(storage=storage, notifier=notifier)
     adapter = TelegramAdapter(bot=bot, service=service)
 
     try:

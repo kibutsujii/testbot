@@ -33,6 +33,13 @@ class Config:
     # Telegram
     bot_token: str
     manager_chat_id: int
+    
+    # Канал уведомления менеджера: "telegram" | "max" | "vk"
+    manager_channel: str
+
+    # MAX
+    max_bot_token: str
+    max_manager_user_id: int
 
     # Хранилище
     storage_backend: str  # "google_sheets" | "sqlite"
@@ -59,9 +66,21 @@ class Config:
         if backend == "google_sheets":
             google_sheet_id = _require("GOOGLE_SHEET_ID")
 
+        manager_channel = os.getenv("MANAGER_CHANNEL", "telegram").strip().lower()
+
+        # MAX-настройки обязательны только если менеджер сидит в MAX.
+        max_bot_token = os.getenv("MAX_BOT_TOKEN", "")
+        max_manager_user_id = int(os.getenv("MAX_MANAGER_USER_ID") or 0)
+        if manager_channel == "max":
+            max_bot_token = _require("MAX_BOT_TOKEN")
+            max_manager_user_id = int(_require("MAX_MANAGER_USER_ID"))
+
         return Config(
             bot_token=_require("BOT_TOKEN"),
             manager_chat_id=int(_require("MANAGER_CHAT_ID")),
+            manager_channel=manager_channel,
+            max_bot_token=max_bot_token,
+            max_manager_user_id=max_manager_user_id,
             storage_backend=backend,
             google_sheet_id=google_sheet_id,
             google_worksheet_name=os.getenv("GOOGLE_WORKSHEET_NAME", "Заявки"),

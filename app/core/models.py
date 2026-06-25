@@ -170,15 +170,23 @@ class Lead:
         return "\n".join(lines)
 
     def as_confirmation(self) -> str:
-        """Текст для подтверждения клиентом перед отправкой заявки."""
         lines = [
             "Проверьте, всё ли верно 👇",
             "",
-            f"👤 <b>Имя:</b> {self.name}",
-            f"📞 <b>Телефон:</b> {self.phone}",
-            f"🏷 <b>Тип:</b> {self.request_type_label}",
+            f"👤 Имя: {self.name}",
+            f"📞 Телефон: {self.phone}",
+            f"📁 Тип: {self.request_type_label}",
         ]
         if self.vehicle_display:
-            lines.append(f"🚗 <b>Авто:</b> {self.vehicle_display}")
-        lines.append(f"📝 <b>Запрос:</b> {self.request_text}")
+            lines.append(f"🚗 Авто: {self.vehicle_display}")
+        lines.append(f"📝 Запрос: {self.request_text}")
+        lines += [
+            "",
+            "Нажимая «✅ Согласен, отправить заявку», вы даёте согласие на "
+            "обработку персональных данных: имени, телефона, данных авто и "
+            "текста заявки.",
+            "",
+            "Данные используются только для обработки обращения и связи с вами "
+            "по заявке.",
+        ]
         return "\n".join(lines)
