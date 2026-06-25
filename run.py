@@ -12,7 +12,7 @@ import logging
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-
+from app.notify.max_notifier import MaxNotifier
 from app.adapters.telegram_adapter import TelegramAdapter
 from app.config import Config
 from app.core.service import LeadService
@@ -51,8 +51,14 @@ async def main() -> None:
     storage = build_storage(config)
     await storage.init()
 
-    notifier = TelegramNotifier(bot=bot, manager_chat_id=config.manager_chat_id)
-    service = LeadService(storage=storage, notifier=notifier)
+    if config.manager_channel == "max":
+        notifier = MaxNotifier(
+        token=config.max_bot_token,
+        manager_user_id=config.max_manager_user_id,
+        )
+    else:
+        notifier = TelegramNotifier(bot=bot, manager_chat_id=config.manager_chat_id)
+        service = LeadService(storage=storage, notifier=notifier)
     adapter = TelegramAdapter(bot=bot, service=service)
 
     try:
