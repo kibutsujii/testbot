@@ -14,6 +14,7 @@ Telegram-адаптер на aiogram 3.x.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from aiogram import Bot, Dispatcher, F
@@ -33,13 +34,6 @@ from aiogram.types import (
 from app.core.models import Lead
 from app.core.service import LeadService
 from app.core.validators import normalize_phone, parse_vehicle_freeform
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-
-START_KB = ReplyKeyboardMarkup(
-    keyboard=[[KeyboardButton(text="📝 Оставить заявку")]],
-    resize_keyboard=True,
-    input_field_placeholder="Нажмите «Оставить заявку»",
-)
 
 log = logging.getLogger(__name__)
 
@@ -50,10 +44,7 @@ class LeadForm(StatesGroup):
     name = State()
     phone = State()
     request_type = State()   # ждём нажатия inline-кнопки
-    veh_brand = State()      # ремонт: марка
-    veh_model = State()      # ремонт: модель
-    veh_year = State()       # ремонт: год
-    veh_parts = State()      # запчасти: VIN или марка+год одним сообщением
+    veh_parts = State()      # авто (ремонт/запчасти): VIN или марка+год одним сообщением
     description = State()
     confirm = State()        # ждём подтверждения кнопкой
 
@@ -163,7 +154,13 @@ class TelegramAdapter:
         async def step_phone_contact(message: Message, state: FSMContext) -> None:
             """Телефон пришёл через кнопку контакта (уже валидный)."""
             raw = message.contact.phone_number
-            await state.update_data(phone=normalize_phone(raw) or raw)
+            # Контакт часто приходит без «+». Если РФ-нормализация не сработала,
+            # хотя бы приведём к виду «+цифры», чтобы в таблице был единый формат.
+            normalized = normalize_phone(raw)
+            if normalized is None:
+                digits = re.sub(r"\D", "", raw)
+                normalized = ("+" + digits) if digits else raw
+            await state.update_data(phone=normalized)
             await self._ask_type(message, state)
 
         @dp.message(LeadForm.phone, F.text)
@@ -189,17 +186,21 @@ class TelegramAdapter:
             await callback.answer()  # убираем "часики" на кнопке
 
             if req_type == "repair":
-                # Ремонт: марка/модель/год отдельными вопросами (важно для работ).
+                # Ремонт: авто одной строкой (как для запчастей), чтобы не грузить клиента.
                 await callback.message.answer(
-                    "Укажите <b>марку</b> авто (например: <i>Lada</i>)."
+                    "Напишите авто одной строкой: <b>марку, модель, поколение "
+                    "(если есть) и год</b>.\n"
+                    "Например: <i>Lada Priora 2014</i> или <i>Toyota Camry 70 2022</i>."
                 )
-                await state.set_state(LeadForm.veh_brand)
+                await state.set_state(LeadForm.veh_parts)
             elif req_type == "parts":
                 # Запчасти: один вопрос — VIN либо марка+год (не грузим клиента).
                 await callback.message.answer(
                     "Подскажите авто для подбора запчастей.\n"
                     "Проще всего — <b>VIN</b> (17 символов), этого достаточно.\n"
-                    "Если VIN под рукой нет — напишите марку и год (например: <i>Lada Priora 2014</i>)."
+                    "Если VIN под рукой нет — напишите <b>марку, модель, поколение "
+                    "(если есть) и год</b> одной строкой.\n"
+                    "Например: <i>Lada Priora 2014</i> или <i>Toyota Camry 70 2022</i>."
                 )
                 await state.set_state(LeadForm.veh_parts)
             else:
@@ -214,26 +215,6 @@ class TelegramAdapter:
                 "Пожалуйста, выберите тип запроса кнопкой выше 👆",
                 reply_markup=_type_keyboard(),
             )
-
-        @dp.message(LeadForm.veh_brand, F.text)
-        async def step_veh_brand(message: Message, state: FSMContext) -> None:
-            """Ремонт: приняли марку → спрашиваем модель."""
-            await state.update_data(brand=message.text.strip())
-            await message.answer("Теперь <b>модель</b> (например: <i>Priora</i>).")
-            await state.set_state(LeadForm.veh_model)
-
-        @dp.message(LeadForm.veh_model, F.text)
-        async def step_veh_model(message: Message, state: FSMContext) -> None:
-            """Ремонт: приняли модель → спрашиваем год."""
-            await state.update_data(model=message.text.strip())
-            await message.answer("И <b>год выпуска</b> (например: <i>2014</i>).")
-            await state.set_state(LeadForm.veh_year)
-
-        @dp.message(LeadForm.veh_year, F.text)
-        async def step_veh_year(message: Message, state: FSMContext) -> None:
-            """Ремонт: приняли год → просим описание."""
-            await state.update_data(year=message.text.strip())
-            await self._ask_description(message, state)
 
         @dp.message(LeadForm.veh_parts, F.text)
         async def step_veh_parts(message: Message, state: FSMContext) -> None:
@@ -262,14 +243,26 @@ class TelegramAdapter:
 
         @dp.callback_query(LeadForm.confirm, F.data == "confirm:send")
         async def confirm_send(callback: CallbackQuery, state: FSMContext) -> None:
-            """Клиент подтвердил → регистрируем заявку."""
-            await callback.answer()
+            """Клиент подтвердил → регистрируем заявку.
+
+            Защита от двойного нажатия: ставим флаг и сразу убираем кнопки,
+            чтобы повторные тапы не создавали дубли заявок.
+            """
             data = await state.get_data()
+            if data.get("_submitting"):
+                await callback.answer("Уже отправляю заявку…")
+                return
+            await state.update_data(_submitting=True)
+            await callback.answer()
+            try:
+                await callback.message.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass
             data["user_id"] = callback.from_user.id
             data["username"] = callback.from_user.username
             lead = self.normalize(data)
             try:
-                number = await self._service.register_lead(lead)
+                await self._service.register_lead(lead)
                 await callback.message.edit_text(
                     f"✅ Заявка №{lead.lead_number} отправлена!\n"
                     "Ожидайте, менеджер уже скоро свяжется с вами."
@@ -292,8 +285,19 @@ class TelegramAdapter:
             await self._start_dialog(callback.message, state)
 
         @dp.message()
-        async def fallback(message: Message) -> None:
-            """Любое сообщение вне диалога — подсказываем начать."""
+        async def fallback(message: Message, state: FSMContext) -> None:
+            """Сообщение, не подошедшее ни одному шагу.
+
+            Если мы посреди анкеты, а пришло не то, что ждём (стикер/фото вместо
+            текста) — мягко просим повторить текстом и НЕ сбрасываем диалог.
+            Вне анкеты — подсказываем, как начать.
+            """
+            if await state.get_state() is not None:
+                await message.answer(
+                    "Пожалуйста, отправьте ответ текстом 🙏\n"
+                    "Или /cancel, чтобы отменить заявку."
+                )
+                return
             await message.answer("Чтобы оставить заявку, отправьте /start.")
 
     # --- общие шаги диалога ---
@@ -309,13 +313,9 @@ class TelegramAdapter:
         await state.set_state(LeadForm.name)
 
     async def _ask_type(self, message: Message, state: FSMContext) -> None:
-        """После телефона — спрашиваем тип запроса кнопками."""
+        """После телефона — спрашиваем тип запроса кнопками (одним сообщением)."""
         await message.answer(
-            "Спасибо! Что вас интересует?",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        await message.answer(
-            "Выберите тип запроса:",
+            "Что вас интересует?",
             reply_markup=_type_keyboard(),
         )
         await state.set_state(LeadForm.request_type)

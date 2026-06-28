@@ -13,7 +13,9 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from app.notify.max_notifier import MaxNotifier
+from app.notify.vk_notifier import VkNotifier
 from app.adapters.telegram_adapter import TelegramAdapter
+from app.adapters.vk_adapter import VkAdapter
 from app.config import Config
 from app.core.service import LeadService
 from app.logging_config import setup_logging
@@ -56,16 +58,35 @@ async def main() -> None:
             token=config.max_bot_token,
             manager_user_id=config.max_manager_user_id,
         )
+    elif config.manager_channel == "vk":
+        notifier = VkNotifier(
+            token=config.vk_bot_token,
+            manager_peer_id=config.vk_manager_peer_id,
+        )
     else:
         notifier = TelegramNotifier(bot=bot, manager_chat_id=config.manager_chat_id)
 
     service = LeadService(storage=storage, notifier=notifier)
-    adapter = TelegramAdapter(bot=bot, service=service)
+
+    # Источники клиентов (можно несколько одновременно).
+    adapters = [TelegramAdapter(bot=bot, service=service)]
+
+    # VK как источник включаем, если задан VK_BOT_TOKEN.
+    if config.vk_bot_token:
+        adapters.append(
+            VkAdapter(
+                token=config.vk_bot_token,
+                service=service,
+                # если менеджер в этом же VK-сообществе — не запускаем для него анкету
+                manager_peer_id=(
+                    config.vk_manager_peer_id if config.manager_channel == "vk" else None
+                ),
+            )
+        )
 
     try:
-        await adapter.listen()
+        await asyncio.gather(*(adapter.listen() for adapter in adapters))
     finally:
-        # Корректно закрываем сессию бота при остановке.
         await bot.session.close()
 
 

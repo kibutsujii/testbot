@@ -10,6 +10,19 @@ log = logging.getLogger(__name__)
 MAX_API = "https://platform-api.max.ru"
 
 
+def _md(text: str) -> str:
+    """Экранировать спецсимволы MAX-markdown в пользовательских значениях.
+
+    Кривой markdown в MAX обычно не роняет отправку, но «страшно рисует»
+    имя/текст со звёздочками, подчёркиваниями и т.п.
+    """
+    if not text:
+        return ""
+    for ch in ("\\", "`", "*", "_", "[", "]", "(", ")", "~"):
+        text = text.replace(ch, "\\" + ch)
+    return text
+
+
 class MaxNotifier(Notifier):
     """Отправляет уведомление менеджеру через MAX. Тот же интерфейс, что у TelegramNotifier."""
 
@@ -63,11 +76,11 @@ class MaxNotifier(Notifier):
             f"🔔 **Новая заявка №{lead.lead_number}**",
             "",
             f"📲 **Источник:** {lead.source}",
-            f"👤 **Имя:** {lead.name}",
+            f"👤 **Имя:** {_md(lead.name)}",
             f"📞 **Телефон:** `{lead.phone}`",
         ]
         if car:
-            lines.append(f"🚗 **Авто:** {car}")
+            lines.append(f"🚗 **Авто:** {_md(car)}")
         if lead.vin:
             lines.append(f"🔢 **VIN:** `{lead.vin}`")
         if lead.request_type in type_labels:
@@ -76,6 +89,6 @@ class MaxNotifier(Notifier):
         lines += [
             "",
             "📝 **Запрос:**",
-            f"_{lead.request_text}_",
+            f"_{_md(lead.request_text)}_",
         ]
         return "\n".join(lines)

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from html import escape
 
 
 # Статусы заявки. На MVP используется только NEW, но фиксируем перечень,
@@ -155,31 +156,44 @@ class Lead:
     def as_message(self) -> str:
         """Человекочитаемый текст уведомления менеджеру."""
         number = f"#{self.lead_number}" if self.lead_number else ""
+        # Экранируем ТОЛЬКО значения (свои теги <b> не трогаем): при глобальном
+        # parse_mode=HTML символы <, >, & в пользовательском вводе ломают парсер.
+        name = escape(self.name)
+        phone = escape(self.phone)
+        vehicle = escape(self.vehicle_display)
+        request_text = escape(self.request_text)
+        source = escape(self.source)
         lines = [
             f"🔔 <b>Новая заявка {number}</b>".strip(),
             "",
-            f"👤 <b>Имя:</b> {self.name}",
-            f"📞 <b>Телефон:</b> {self.phone}",
+            f"👤 <b>Имя:</b> {name}",
+            f"📞 <b>Телефон:</b> {phone}",
             f"🏷 <b>Тип:</b> {self.request_type_label}",
         ]
         if self.vehicle_display:
-            lines.append(f"🚗 <b>Авто:</b> {self.vehicle_display}")
-        lines.append(f"📝 <b>Запрос:</b> {self.request_text}")
-        lines.append(f"🌐 <b>Источник:</b> {self.source}")
+            lines.append(f"🚗 <b>Авто:</b> {vehicle}")
+        lines.append(f"📝 <b>Запрос:</b> {request_text}")
+        lines.append(f"🌐 <b>Источник:</b> {source}")
         lines.append(f"🕒 <b>Время:</b> {self.created_at.strftime('%d.%m.%Y %H:%M')}")
         return "\n".join(lines)
 
     def as_confirmation(self) -> str:
+        # Экранируем значения: экран подтверждения тоже уходит при parse_mode=HTML,
+        # и символ < или & в имени/тексте иначе уронит отправку (клиент застрянет).
+        name = escape(self.name)
+        phone = escape(self.phone)
+        vehicle = escape(self.vehicle_display)
+        request_text = escape(self.request_text)
         lines = [
             "Проверьте, всё ли верно 👇",
             "",
-            f"👤 Имя: {self.name}",
-            f"📞 Телефон: {self.phone}",
+            f"👤 Имя: {name}",
+            f"📞 Телефон: {phone}",
             f"📁 Тип: {self.request_type_label}",
         ]
         if self.vehicle_display:
-            lines.append(f"🚗 Авто: {self.vehicle_display}")
-        lines.append(f"📝 Запрос: {self.request_text}")
+            lines.append(f"🚗 Авто: {vehicle}")
+        lines.append(f"📝 Запрос: {request_text}")
         lines += [
             "",
             "Нажимая «✅ Согласен, отправить заявку», вы даёте согласие на "

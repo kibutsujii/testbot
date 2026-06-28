@@ -52,6 +52,10 @@ class GoogleSheetsStorage:
         self._clients_name = clients_worksheet_name
         self._worksheet: gspread.Worksheet | None = None
         self._clients_ws: gspread.Worksheet | None = None
+        # Сериализация записи: Telegram и VK сохраняют заявки параллельно,
+        # а нумерация и upsert клиента не атомарны (возможны дубли номеров
+        # и затирание строк на листе «Клиенты»).
+        self._lock = asyncio.Lock()
 
     def _connect_sync(self) -> tuple[gspread.Worksheet, gspread.Worksheet]:
         """Синхронно подключиться и вернуть листы (Заявки, Клиенты)."""
@@ -143,13 +147,13 @@ class GoogleSheetsStorage:
             year = lead.year or _cell(7)
             vin = lead.vin or _cell(8)
             ws.update(
-                f"A{target_row}:C{target_row}",
-                [[f"'{chat_id}", lead.name, f"'{lead.phone}"]],
+                range_name=f"A{target_row}:C{target_row}",
+                values=[[f"'{chat_id}", lead.name, f"'{lead.phone}"]],
                 value_input_option="USER_ENTERED",
             )
             ws.update(
-                f"E{target_row}:K{target_row}",
-                [[lead.source, brand, model, year, vin, first_contact, today]],
+                range_name=f"E{target_row}:K{target_row}",
+                values=[[lead.source, brand, model, year, vin, first_contact, today]],
                 value_input_option="USER_ENTERED",
             )
         else:
@@ -157,13 +161,13 @@ class GoogleSheetsStorage:
             # (не append_row, чтобы не конфликтовать с формулами).
             new_row = len(values) + 1
             ws.update(
-                f"A{new_row}:C{new_row}",
-                [[f"'{chat_id}", lead.name, f"'{lead.phone}"]],
+                range_name=f"A{new_row}:C{new_row}",
+                values=[[f"'{chat_id}", lead.name, f"'{lead.phone}"]],
                 value_input_option="USER_ENTERED",
             )
             ws.update(
-                f"E{new_row}:K{new_row}",
-                [[lead.source, lead.brand, lead.model, lead.year, lead.vin, today, today]],
+                range_name=f"E{new_row}:K{new_row}",
+                values=[[lead.source, lead.brand, lead.model, lead.year, lead.vin, today, today]],
                 value_input_option="USER_ENTERED",
             )
 
@@ -179,14 +183,18 @@ class GoogleSheetsStorage:
         """Добавить заявку в «Заявки» и обновить профиль в «Клиенты»."""
         if self._worksheet is None:
             await self.init()
-        number = await asyncio.to_thread(self._save_sync, lead)
-        log.info(
-            "Заявка #%s сохранена в Google Sheets: %s / %s",
-            number, lead.name, lead.phone,
-        )
-        # Обновление CRM-листа — вторичное: если упало, заявка уже сохранена.
-        try:
-            await asyncio.to_thread(self._upsert_client_sync, lead)
-        except Exception:
-            log.exception("Не удалось обновить лист '%s'", self._clients_name)
+        # Под блокировкой: чтение номера + append и upsert клиента должны идти
+        # последовательно, иначе параллельные заявки (Telegram/VK) дадут
+        # одинаковый номер или затрут строку клиента.
+        async with self._lock:
+            number = await asyncio.to_thread(self._save_sync, lead)
+            log.info(
+                "Заявка #%s сохранена в Google Sheets: %s / %s",
+                number, lead.name, lead.phone,
+            )
+            # Обновление CRM-листа — вторичное: если упало, заявка уже сохранена.
+            try:
+                await asyncio.to_thread(self._upsert_client_sync, lead)
+            except Exception:
+                log.exception("Не удалось обновить лист '%s'", self._clients_name)
         return number
